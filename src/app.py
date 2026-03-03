@@ -27,6 +27,7 @@ from langchain_groq import ChatGroq
 def compute_data_files_hash(data_dir="data"):
     """Compute hash based on actual data files, not loaded documents.
     This ensures the vector store only rebuilds when actual files change.
+    Excludes .cache directories.
     """
     h = hashlib.sha256()
     data_path = Path(data_dir)
@@ -34,8 +35,12 @@ def compute_data_files_hash(data_dir="data"):
     if not data_path.exists():
         return ""
     
-    # Hash all files in sorted order for consistency
+    # Hash all files in sorted order for consistency, excluding .cache
     for file_path in sorted(data_path.glob("**/*")):
+        # Skip .cache directories
+        if ".cache" in file_path.parts:
+            continue
+        
         if file_path.is_file():
             try:
                 with open(file_path, 'rb') as f:
@@ -44,7 +49,6 @@ def compute_data_files_hash(data_dir="data"):
                 print(f"[WARN] Could not hash file {file_path}: {e}")
     
     return h.hexdigest()
-
 
 def load_build_state():
     """Load the build state file containing hashes of vector store and knowledge graph."""
@@ -64,6 +68,7 @@ def save_build_state(state):
     try:
         os.makedirs(os.path.dirname(build_state_path) or ".", exist_ok=True)
         with open(build_state_path, 'w') as f:
+            print(f"[DEBUG] Saving build state: {state}")
             json.dump(state, f, indent=2)
     except Exception as e:
         print(f"[WARN] Failed to save build state: {e}")
@@ -185,7 +190,9 @@ def main():
         # Check if vector store needs rebuilding
         vectorstore_hash = build_state.get("vectorstore_hash")
         should_rebuild_vector = vectorstore_hash != current_hash or not os.path.exists("faiss_store/faiss.index")
-        
+        print(f"[DEBUG] Current data hash: {current_hash}")
+        print(f"[DEBUG] Stored vector store hash: {vectorstore_hash}")
+        print(f"[DEBUG] Should rebuild vector store: {should_rebuild_vector}")
         print("[INFO] Building vector store...")
         vector_store = FaissVectorStore(persist_dir="faiss_store", embedding_model="all-MiniLM-L6-v2")
         
