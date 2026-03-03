@@ -135,7 +135,7 @@ Exiting the application.
 │           Main application orchestrator            │
 │  • Startup & index management                      │
 │  • Query loop & user interaction                   │
-│  • Result caching coordination                     │
+│  • Direct LLM orchestration with ChatGroq          │
 └─────────────────────────────────────────────────────┘
          ↓              ↓              ↓
     ┌─────────┐   ┌─────────────┐  ┌──────────────┐
@@ -150,12 +150,13 @@ Exiting the application.
                       ↓
               ┌─────────────────┐
               │  Cache Check    │
-              │  (Similarity)   │
+              │  (FAISS-based)  │
               └────────┬────────┘
                  ↙      ↓      ↘
             [Cache Hit] [Query LLM] [Cache Miss]
                  ↓      ↓           ↓
-                 └──→ Groq LLM ←──┘
+                 └──→ ChatGroq ←──┘
+                (llama-3.3-70b-versatile)
                       ↓
               ┌──────────────────┐
               │  Cache Result    │
@@ -167,14 +168,15 @@ Exiting the application.
 
 | Module | Purpose | Key Functions |
 |--------|---------|---------------|
-| **app.py** | Orchestration & CLI | Main application loop, startup logic |
+| **app.py** | Orchestration & CLI | Main application loop, startup logic, LLM orchestration |
 | **data_loader.py** | Document ingestion | Load PDFs with caching, parallel processing |
 | **embedding.py** | Text vectorization | Create embeddings using sentence-transformers |
 | **vectorstore.py** | Vector index management | Build/load FAISS indexes, similarity search |
 | **keyword_search.py** | Term-based retrieval | Inverted index, TF-IDF scoring |
 | **knowledge_graph.py** | Entity relationships | Extract entities, build graph, search by relationships |
 | **hybrid_search.py** | Result combination | Combine 3 methods with weights, normalize scores |
-| **rag_search.py** | LLM integration | Generate answers using Groq API |
+| **search.py** | RAG search pipeline | Vector search with document ranking |
+| **semantic_cache_faiss.py** | FAISS-based caching | Fast semantic similarity cache with FAISS backend |
 | **cache.py** | Query result caching | Semantic similarity matching, persistent storage |
 | **sanitizer.py** | Input validation | Remove injection vectors, normalize text |
 | **config.py** | Configuration | Multithreading & device settings |
@@ -269,29 +271,37 @@ DEVICE = "cpu"                        # "cpu" or "cuda"
 ### Phase 2: Query Processing (For each user query)
 
 ```
-1. Check Cache
-   ├─ If similarity ≥ 90%: Return cached answer ⚡⚡
-   └─ Else: Continue to search
+1. Check Semantic Cache
+   ├─ If FAISS similarity ≥ threshold: Return cached answer ⚡⚡
+   └─ Else: Continue to search & rewriting
 
-2. Hybrid Search
+2. Document Grading & Retry Logic
+   ├─ Hybrid Search with top-3 results
+   ├─ Grade documents for relevance (binary classification)
+   ├─ If not relevant: Rewrite query (up to 2 retries)
+   └─ If no relevant docs: Generate fallback answer
+
+3. Hybrid Search (if documents relevant)
    ├─ Semantic: Vector similarity (FAISS)
    ├─ Keyword: Term matching (TF-IDF)
    └─ Knowledge Graph: Entity traversal
    
-3. Combine Results
+4. Combine Results
    └─ Weighted scoring: sem(50%) + kw(30%) + kg(20%)
 
-4. Extract Context
-   └─ Get top-3 documents, sanitize, limit to 3000 chars
+5. Extract & Sanitize Context
+   └─ Get top results, remove injections, limit to 3000 chars
 
-5. Call LLM
-   └─ Groq API (llama-3.3-70b-versatile)
+6. Call ChatGroq LLM
+   ├─ Model: llama-3.3-70b-versatile
+   ├─ Method: Direct invoke with structured messages
+   └─ System prompt: Prevent instruction injection
 
-6. Cache Result
-   └─ Store for future similar queries
+7. Cache Result Semantically
+   └─ Store embedding + answer for future similar queries
 
-7. Display Answer
-   └─ Show summary to user
+8. Display Answer
+   └─ Show summary to user with source information
 ```
 
 ---
@@ -653,5 +663,16 @@ Gokul Kalauni
 
 ---
 
-**Last Updated:** March 1, 2026
+**Last Updated:** March 3, 2026
+
+---
+
+## 🔄 Recent Updates
+
+### March 3, 2026
+- **Fixed LLM Integration:** Replaced `generate_answer_from_context()` with direct `ChatGroq.invoke()` for cleaner architecture
+- **Enhanced Caching:** FAISS-based semantic cache with configurable similarity threshold
+- **Improved Workflow:** Added document grading and automatic query rewriting to retry logic
+- **Better Error Handling:** Fallback answer generation when knowledge base has insufficient information
+- **Security Hardening:** Structured messaging prevents prompt injection attacks
 
